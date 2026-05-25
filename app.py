@@ -1,0 +1,142 @@
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+import math
+from streamlit_gsheets import GSheetsConnection
+
+# Configurazione della pagina
+st.set_page_config(page_title="Money Management Automation", layout="wide")
+
+# CONNESSONE A GOOGLE SHEETS
+conn = st.connection("gsheets", type=GSheetsConnection)
+
+# --- FUNZIONE MATEMATICA MASANIELLO ---
+def calcola_tutti_step_masaniello(cassa_impostata, quota_media, eventi_totali, eventi_attesi):
+    if eventi_totali <= 0 or eventi_attesi <= 0 or eventi_attesi > eventi_totali:
+        return 0.0
+    num = math.comb(eventi_totali - 1, eventi_attesi - 1) * (quota_media ** eventi_attesi)
+    den = sum(math.comb(eventi_totali, i) * (quota_media ** i) for i in range(eventi_attesi, eventi_totali + 1))
+    if den == 0: return 0.0
+    return round(cassa_impostata * (num / den), 2)
+
+st.title("🛡️ Calcolatore Automatico Money Management")
+st.markdown("Imposta la tua cassa di riferimento. Il sistema calcolerà automaticamente gli stake. Quando decidi di aggiornare la cassa, il sistema si adeguerà all'istante.")
+st.divider()
+
+# --- PROGETTI DISPONIBILI ---
+CONFIG_PROGETTI = {
+    "📊 Matrix a 4 Stazioni": {"tipo": "Matrix", "sheet": "Matrix"},
+    "🍷 Masaniello Strategico": {"tipo": "Masaniello", "sheet": "Masaniello"}
+}
+
+progetto_scelto = st.selectbox("🗂️ Seleziona il Sistema da visualizzare:", list(CONFIG_PROGETTI.keys()))
+config = CONFIG_PROGETTI[progetto_scelto]
+
+# 1. LETTURA DATI DA GOOGLE SHEETS
+try:
+    df = conn.read(worksheet=config["sheet"], ttl=0)
+    st.success(f"🔄 Sincronizzato con il database '{config['sheet']}'")
+except Exception as e:
+    st.error(f"⚠️ Errore di connessione al foglio '{config['sheet']}'.")
+    df = pd.DataFrame(columns=["Data", "Evento", "Quota", "Stake Calcolato", "Esito", "Profitto Netto"])
+
+# 2. IMPOSTAZIONE CASSA MANUALE DA PARTE TUA
+st.subheader("⚙️ Impostazione Cassa di Riferimento")
+col_cassa, col_info = st.columns([1, 2])
+
+with col_cassa:
+    # Qui inserisci tu la cassa. Quando arrivi a 2000, ti basta cambiare questo numero e premere Invio.
+    cassa_riferimento = st.number_input("Inserisci il Capitale da cui calcolare gli stake (€):", min_value=10.0, value=1000.0, step=50.0, format="%.2f")
+
+with col_info:
+    st.info(f"💡 Gli stake visualizzati qui sotto sono calcolati matematicamente su un capitale di **{cassa_riferimento:.2f} €**.")
+
+st.divider()
+
+# 3. GENERATORE AUTOMATICO DI STAKE (PULSANTE DI COMANDO)
+st.subheader("🎯 Tabella degli Stake Calcolati")
+
+if config["tipo"] == "Matrix":
+    # Calcolo automatico immediato per le 4 stazioni
+    st1 = cassa_riferimento * 0.01
+    st2 = cassa_riferimento * 0.025
+    st3 = cassa_riferimento * 0.05
+    st4 = cassa_riferimento * 0.10
+    
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("🔴 S-Small (1%)", f"{st1:.2f} €")
+    c2.metric("🟠 Small (2.5%)", f"{st2:.2f} €")
+    c3.metric("🔵 Medium (5%)", f"{st3:.2f} €")
+    c4.metric("🟣 Large (10%)", f"{st4:.2f} €")
+    
+    # Selezione automatica dello stake per l'inserimento
+    scelta_stazione = st.radio("Quale stazione stai giocando adesso?", ["S-Small (1%)", "Small (2.5%)", "Medium (5%)", "Large (10%)"])
+    if "S-Small" in scelta_stazione: stake_da_giocare = st1
+    elif "Small" in scelta_stazione: stake_da_giocare = st2
+    elif "Medium" in scelta_stazione: stake_da_giocare = st3
+    else: stake_da_giocare = st4
+
+elif config["tipo"] == "Masaniello":
+    col_q, col_tot, col_ok = st.columns(3)
+    with col_q: q_med = st.number_input("Quota Media Masa", min_value=1.01, value=2.00, step=0.05)
+    with col_tot: t_ev = st.number_input("Eventi Totali", min_value=1, value=10, step=1)
+    with col_ok: p_ev = st.number_input("Eventi Attesi (Prese)", min_value=1, value=6, step=1)
+    
+    stake_da_giocare = calcola_tutti_step_masaniello(cassa_riferimento, q_med, t_ev, p_ev)
+    st.metric("🍷 Stake Masaniello Suggerito dallo Step Attuale", f"{stake_da_giocare:.2f} €")
+
+st.divider()
+
+# 4. FORM DI INSERIMENTO: TU METTI SOLO QUOTA ED ESITO, LO STAKE È AUTOMATICO
+st.subheader("📝 Registra la Giocata Effettuata")
+st.write(f"Lo stake bloccato per questa giocata è di **{stake_da_giocare:.2f} €**")
+
+with st.form(key="inserimento_giocata"):
+    col_ev, col_qu, col_es = st.columns(3)
+    with col_ev:
+        evento_g = st.text_input("Partita / Evento", placeholder="Es. Inter - Juventus")
+    with col_qu:
+        quota_g = st.number_input("Quota Effettiva Giocata", min_value=1.01, value=2.00, step=0.01, format="%.2f")
+    with col_es:
+        esito_g = st.selectbox("Esito Finale", ["Vinto", "Perso", "In attesa"])
+        
+    registra = st.form_submit_button(label="🚀 Registra Operazione nel Registro")
+
+if registra:
+    # Il sistema calcola il profitto basandosi sullo stake AUTOMATICO generato sopra
+    if esito_g == "Vinto":
+        profitto_netto = (stake_da_giocare * quota_g) - stake_da_giocare
+    elif esito_g == "Perso":
+        profitto_netto = -stake_da_giocare
+    else:
+        profitto_netto = 0.0
+
+    nuova_riga = pd.DataFrame([{
+        "Data": pd.Timestamp.now().strftime("%Y-%m-%d"),
+        "Evento": evento_g,
+        "Quota": quota_g,
+        "Stake Calcolato": round(stake_da_giocare, 2),
+        "Esito": esito_g,
+        "Profitto Netto": round(profitto_netto, 2)
+    }])
+    
+    df_aggiornato = pd.concat([df, nueva_riga], ignore_index=True)
+    conn.update(worksheet=config["sheet"], data=df_aggiornato)
+    st.success("🎯 Giocata registrata correttamente con lo stake calcolato!")
+    st.rerun()
+
+st.divider()
+
+# 5. RENDICONTO E GRAFICI
+if not df.empty:
+    st.subheader("📋 Registro Storico delle Giocate Convalidate")
+    st.dataframe(df, use_container_width=True)
+    
+    # Grafico dei profitti accumulati
+    df["Profitto Progressivo"] = df["Profitto Netto"].cumsum()
+    st.subheader("📈 Profitto Netto Progressivo (€)")
+    fig = px.line(df, x=df.index, y="Profitto Progressivo", markers=True)
+    fig.update_traces(line_color="#2ecc71", width=3)
+    st.plotly_chart(fig, use_container_width=True)
+else:
+    st.info("ℹ️ Nessuna giocata inserita in questo registro.")
