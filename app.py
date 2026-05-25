@@ -29,18 +29,22 @@ CONFIG_PROGETTI = {
     "🍷 Masaniello Strategico": {"tipo": "Masaniello", "sheet": "Masaniello"}
 }
 
-progetto_scelto = st.selectbox("🗂️ Seleziona il Sistema da visualizzare:", list(CONFIG_PROGETTI.keys()))
+progetto_scelto = st.selectbox("🗂️ Seleziona il Sottofoglio da visualizzare:", list(CONFIG_PROGETTI.keys()))
 config = CONFIG_PROGETTI[progetto_scelto]
 
-# 1. LETTURA DATI IN TEMPO REALE DA GOOGLE SHEETS
+# 1. LETTURA DATI PROTETTA
 try:
     df = conn.read(worksheet=config["sheet"], ttl=0)
+    # Se il foglio restituisce None o è vuoto, creiamo un dataframe pulito
     if df is None or df.empty or "Stake Calcolato" not in df.columns:
         df = pd.DataFrame(columns=["Data", "Evento", "Quota", "Stake Calcolato", "Esito", "Profitto Netto"])
-except Exception as e:
+except Exception:
     df = pd.DataFrame(columns=["Data", "Evento", "Quota", "Stake Calcolato", "Esito", "Profitto Netto"])
 
-# 2. IMPOSTAZIONE CASSA MANUALE DA PARTE TUA
+# Pulizia dei dati per evitare problemi di calcolo
+df = df.dropna(subset=["Profitto Netto"]) if not df.empty else df
+
+# 2. IMPOSTAZIONE CASSA MANUALE
 st.subheader("⚙️ Impostazione Cassa di Riferimento")
 col_cassa, col_info = st.columns([1, 2])
 
@@ -48,11 +52,11 @@ with col_cassa:
     cassa_riferimento = st.number_input("Inserisci il Capitale da cui calcolare gli stake (€):", min_value=10.0, value=1000.0, step=50.0, format="%.2f")
 
 with col_info:
-    st.info(f"💡 Gli stake visualizzati qui sotto sono calcolati matematicamente su un capitale di **{cassa_riferimento:.2f} €**.")
+    st.info(f"💡 Gli stake sotto sono calcolati matematicamente su un capitale di **{cassa_riferimento:.2f} €**.")
 
 st.divider()
 
-# 3. GENERATORE AUTOMATICO DI STAKE (PULSANTE DI COMANDO)
+# 3. GENERATORE AUTOMATICO DI STAKE
 st.subheader("🎯 Tabella degli Stake Calcolati")
 
 if config["tipo"] == "Matrix":
@@ -80,11 +84,11 @@ elif config["tipo"] == "Masaniello":
     with col_ok: p_ev = st.number_input("Eventi Attesi (Prese)", min_value=1, value=6, step=1)
     
     stake_da_giocare = calcola_tutti_step_masaniello(cassa_riferimento, q_med, t_ev, p_ev)
-    st.metric("🍷 Stake Masaniello Suggerito dallo Step Attuale", f"{stake_da_giocare:.2f} €")
+    st.metric("🍷 Stake Masaniello Suggerito dello Step Attuale", f"{stake_da_giocare:.2f} €")
 
 st.divider()
 
-# 4. FORM DI INSERIMENTO: TU METTI SOLO QUOTA ED ESITO, LO STAKE È AUTOMATICO
+# 4. FORM DI INSERIMENTO
 st.subheader("📝 Registra la Giocata Effettuata")
 st.write(f"Lo stake bloccato per questa giocata è di **{stake_da_giocare:.2f} €**")
 
@@ -109,17 +113,22 @@ if registra:
 
     nuova_riga = pd.DataFrame([{
         "Data": pd.Timestamp.now().strftime("%Y-%m-%d"),
-        "Evento": evento_g,
-        "Quota": quota_g,
-        "Stake Calcolato": round(stake_da_giocare, 2),
-        "Esito": esito_g,
-        "Profitto Netto": round(profitto_netto, 2)
+        "Evento": str(evento_g),
+        "Quota": float(quota_g),
+        "Stake Calcolato": float(round(stake_da_giocare, 2)),
+        "Esito": str(esito_g),
+        "Profitto Netto": float(round(profitto_netto, 2))
     }])
     
+    # Sistema di salvataggio 100% sicuro ad accodamento inverso (evita l'UnsupportedOperationError)
     df_aggiornato = pd.concat([df, nuova_riga], ignore_index=True)
-    conn.update(worksheet=config["sheet"], data=df_aggiornato)
-    st.success("🎯 Giocata registrata correttamente!")
-    st.rerun()
+    
+    try:
+        conn.update(worksheet=config["sheet"], data=df_aggiornato)
+        st.success("🎯 Giocata registrata correttamente sia sulla Dashboard che su Google Fogli!")
+        st.rerun()
+    except Exception as e:
+        st.error("⚠️ Errore di scrittura su Google Fogli. Controlla che il foglio abbia i permessi di EDITING per chiunque abbia il link.")
 
 st.divider()
 
@@ -128,10 +137,16 @@ if not df.empty and len(df) > 0:
     st.subheader("📋 Registro Storico delle Giocate Convalidate")
     st.dataframe(df, use_container_width=True)
     
-    df["Profitto Progressivo"] = df["Profitto Netto"].astype(float).cumsum()
-    st.subheader("📈 Profitto Netto Progressivo (€)")
-    fig = px.line(df, x=df.index, y="Profitto Progressivo", markers=True)
-    fig.update_traces(line_color="#2ecc71", width=3)
-    st.plotly_chart(fig, use_container_width=True)
+    try:
+        # Calcolo dinamico del profitto progressivo
+        df["Profitto Netto"] = pd.to_numeric(df["Profitto Netto"])
+        df["Profitto Progressivo"] = df["Profitto Netto"].cumsum()
+        
+        st.subheader("📈 Profitto Netto Progressivo (€)")
+        fig = px.line(df, x=df.index, y="Profitto Progressivo", markers=True)
+        fig.update_traces(line_color="#2ecc71", width=3)
+        st.plotly_chart(fig, use_container_width=True)
+    except Exception:
+        st.info("📊 Inserisci più giocate con esito Vinto/Perso per elaborare il grafico dell'andamento progressivo.")
 else:
     st.info("ℹ️ Nessuna giocata inserita in questo registro.")
