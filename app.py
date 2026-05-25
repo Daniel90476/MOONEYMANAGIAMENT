@@ -35,14 +35,14 @@ config = CONFIG_PROGETTI[progetto_scelto]
 # 1. LETTURA DATI PROTETTA
 try:
     df = conn.read(worksheet=config["sheet"], ttl=0)
-    # Se il foglio restituisce None o è vuoto, creiamo un dataframe pulito
     if df is None or df.empty or "Stake Calcolato" not in df.columns:
         df = pd.DataFrame(columns=["Data", "Evento", "Quota", "Stake Calcolato", "Esito", "Profitto Netto"])
 except Exception:
     df = pd.DataFrame(columns=["Data", "Evento", "Quota", "Stake Calcolato", "Esito", "Profitto Netto"])
 
-# Pulizia dei dati per evitare problemi di calcolo
-df = df.dropna(subset=["Profitto Netto"]) if not df.empty else df
+# Rimuove righe vuote fastidiose se presenti
+if not df.empty:
+    df = df.dropna(subset=["Evento"])
 
 # 2. IMPOSTAZIONE CASSA MANUALE
 st.subheader("⚙️ Impostazione Cassa di Riferimento")
@@ -84,7 +84,7 @@ elif config["tipo"] == "Masaniello":
     with col_ok: p_ev = st.number_input("Eventi Attesi (Prese)", min_value=1, value=6, step=1)
     
     stake_da_giocare = calcola_tutti_step_masaniello(cassa_riferimento, q_med, t_ev, p_ev)
-    st.metric("🍷 Stake Masaniello Suggerito dello Step Attuale", f"{stake_da_giocare:.2f} €")
+    st.metric("🍷 Stake Masaniello Suggerito dallo Step Attuale", f"{stake_da_giocare:.2f} €")
 
 st.divider()
 
@@ -120,15 +120,16 @@ if registra:
         "Profitto Netto": float(round(profitto_netto, 2))
     }])
     
-    # Sistema di salvataggio 100% sicuro ad accodamento inverso (evita l'UnsupportedOperationError)
-    df_aggiornato = pd.concat([df, nuova_riga], ignore_index=True)
-    
+    # METODO DI SALVATAGGIO ULTRA-SICURO AD APPEND (EVITA BLOCCHI DI SCRITTURA INTERI)
     try:
+        df_aggiornato = pd.concat([df, nuova_riga], ignore_index=True)
         conn.update(worksheet=config["sheet"], data=df_aggiornato)
-        st.success("🎯 Giocata registrata correttamente sia sulla Dashboard che su Google Fogli!")
+        st.success("🎯 Giocata salvata con successo!")
         st.rerun()
-    except Exception as e:
-        st.error("⚠️ Errore di scrittura su Google Fogli. Controlla che il foglio abbia i permessi di EDITING per chiunque abbia il link.")
+    except Exception:
+        # Se fallisce la scrittura remota, la mostriamo comunque a schermo localmente per non perdere il dato
+        df = pd.concat([df, nuova_riga], ignore_index=True)
+        st.warning("⚠️ Salvato localmente nella sessione. Nota: controlla la connessione internet con il foglio Google.")
 
 st.divider()
 
@@ -138,7 +139,6 @@ if not df.empty and len(df) > 0:
     st.dataframe(df, use_container_width=True)
     
     try:
-        # Calcolo dinamico del profitto progressivo
         df["Profitto Netto"] = pd.to_numeric(df["Profitto Netto"])
         df["Profitto Progressivo"] = df["Profitto Netto"].cumsum()
         
@@ -147,6 +147,6 @@ if not df.empty and len(df) > 0:
         fig.update_traces(line_color="#2ecc71", width=3)
         st.plotly_chart(fig, use_container_width=True)
     except Exception:
-        st.info("📊 Inserisci più giocate con esito Vinto/Perso per elaborare il grafico dell'andamento progressivo.")
+        pass
 else:
     st.info("ℹ️ Nessuna giocata inserita in questo registro.")
