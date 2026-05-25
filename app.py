@@ -32,19 +32,19 @@ CONFIG_PROGETTI = {
 progetto_scelto = st.selectbox("🗂️ Seleziona il Sistema da visualizzare:", list(CONFIG_PROGETTI.keys()))
 config = CONFIG_PROGETTI[progetto_scelto]
 
-# 1. LETTURA DATI DA GOOGLE SHEETS
+# 1. LETTURA DATI IN TEMPO REALE DA GOOGLE SHEETS
 try:
     df = conn.read(worksheet=config["sheet"], ttl=0)
-    st.success(f"..." )
+    if df is None or df.empty or "Stake Calcolato" not in df.columns:
+        df = pd.DataFrame(columns=["Data", "Evento", "Quota", "Stake Calcolato", "Esito", "Profitto Netto"])
 except Exception as e:
-    st.error(f"...")
-    df = pd.DataFrame(...)
+    df = pd.DataFrame(columns=["Data", "Evento", "Quota", "Stake Calcolato", "Esito", "Profitto Netto"])
+
 # 2. IMPOSTAZIONE CASSA MANUALE DA PARTE TUA
 st.subheader("⚙️ Impostazione Cassa di Riferimento")
 col_cassa, col_info = st.columns([1, 2])
 
 with col_cassa:
-    # Qui inserisci tu la cassa. Quando arrivi a 2000, ti basta cambiare questo numero e premere Invio.
     cassa_riferimento = st.number_input("Inserisci il Capitale da cui calcolare gli stake (€):", min_value=10.0, value=1000.0, step=50.0, format="%.2f")
 
 with col_info:
@@ -56,7 +56,6 @@ st.divider()
 st.subheader("🎯 Tabella degli Stake Calcolati")
 
 if config["tipo"] == "Matrix":
-    # Calcolo automatico immediato per le 4 stazioni
     st1 = cassa_riferimento * 0.01
     st2 = cassa_riferimento * 0.025
     st3 = cassa_riferimento * 0.05
@@ -68,7 +67,6 @@ if config["tipo"] == "Matrix":
     c3.metric("🔵 Medium (5%)", f"{st3:.2f} €")
     c4.metric("🟣 Large (10%)", f"{st4:.2f} €")
     
-    # Selezione automatica dello stake per l'inserimento
     scelta_stazione = st.radio("Quale stazione stai giocando adesso?", ["S-Small (1%)", "Small (2.5%)", "Medium (5%)", "Large (10%)"])
     if "S-Small" in scelta_stazione: stake_da_giocare = st1
     elif "Small" in scelta_stazione: stake_da_giocare = st2
@@ -102,7 +100,6 @@ with st.form(key="inserimento_giocata"):
     registra = st.form_submit_button(label="🚀 Registra Operazione nel Registro")
 
 if registra:
-    # Il sistema calcola il profitto basandosi sullo stake AUTOMATICO generato sopra
     if esito_g == "Vinto":
         profitto_netto = (stake_da_giocare * quota_g) - stake_da_giocare
     elif esito_g == "Perso":
@@ -119,20 +116,19 @@ if registra:
         "Profitto Netto": round(profitto_netto, 2)
     }])
     
-    df_aggiornato = pd.concat([df, nueva_riga], ignore_index=True)
+    df_aggiornato = pd.concat([df, nuova_riga], ignore_index=True)
     conn.update(worksheet=config["sheet"], data=df_aggiornato)
-    st.success("🎯 Giocata registrata correttamente con lo stake calcolato!")
+    st.success("🎯 Giocata registrata correttamente!")
     st.rerun()
 
 st.divider()
 
 # 5. RENDICONTO E GRAFICI
-if not df.empty:
+if not df.empty and len(df) > 0:
     st.subheader("📋 Registro Storico delle Giocate Convalidate")
     st.dataframe(df, use_container_width=True)
     
-    # Grafico dei profitti accumulati
-    df["Profitto Progressivo"] = df["Profitto Netto"].cumsum()
+    df["Profitto Progressivo"] = df["Profitto Netto"].astype(float).cumsum()
     st.subheader("📈 Profitto Netto Progressivo (€)")
     fig = px.line(df, x=df.index, y="Profitto Progressivo", markers=True)
     fig.update_traces(line_color="#2ecc71", width=3)
