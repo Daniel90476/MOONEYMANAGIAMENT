@@ -35,11 +35,10 @@ config = CONFIG_PROGETTI[progetto_scelto]
 # 1. LETTURA DATI DA GOOGLE SHEETS
 try:
     df = conn.read(worksheet=config["sheet"], ttl=0)
-    st.success(f"🔄 Sincronizzato con il database '{config['sheet']}'")
+    st.success(f"..." )
 except Exception as e:
-    st.error(f"⚠️ Errore di connessione al foglio '{config['sheet']}'.")
-    df = pd.DataFrame(columns=["Data", "Evento", "Quota", "Stake Calcolato", "Esito", "Profitto Netto"])
-
+    st.error(f"...")
+    df = pd.DataFrame(...)
 # 2. IMPOSTAZIONE CASSA MANUALE DA PARTE TUA
 st.subheader("⚙️ Impostazione Cassa di Riferimento")
 col_cassa, col_info = st.columns([1, 2])
