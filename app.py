@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -20,7 +21,7 @@ def calcola_tutti_step_masaniello(cassa_impostata, quota_media, eventi_totali, e
     return round(cassa_impostata * (num / den), 2)
 
 st.title("🛡️ Calcolatore Automatico Money Management")
-st.markdown("Imposta la tua cassa di riferimento. Il sistema calcolerà automaticamente gli stake. Quando decidi di aggiornare la cassa, il sistema si adeguerà all'istante.")
+st.markdown("Imposta la tua cassa di riferimento. Il sistema calcolerà automaticamente gli stake.")
 st.divider()
 
 # --- PROGETTI DISPONIBILI ---
@@ -40,19 +41,12 @@ try:
 except Exception:
     df = pd.DataFrame(columns=["Data", "Evento", "Quota", "Stake Calcolato", "Esito", "Profitto Netto"])
 
-# Rimuove righe vuote fastidiose se presenti
 if not df.empty:
     df = df.dropna(subset=["Evento"])
 
 # 2. IMPOSTAZIONE CASSA MANUALE
 st.subheader("⚙️ Impostazione Cassa di Riferimento")
-col_cassa, col_info = st.columns([1, 2])
-
-with col_cassa:
-    cassa_riferimento = st.number_input("Inserisci il Capitale da cui calcolare gli stake (€):", min_value=10.0, value=1000.0, step=50.0, format="%.2f")
-
-with col_info:
-    st.info(f"💡 Gli stake sotto sono calcolati matematicamente su un capitale di **{cassa_riferimento:.2f} €**.")
+cassa_riferimento = st.number_input("Inserisci il Capitale da cui calcolare gli stake (€):", min_value=10.0, value=1000.0, step=50.0, format="%.2f")
 
 st.divider()
 
@@ -84,15 +78,15 @@ elif config["tipo"] == "Masaniello":
     with col_ok: p_ev = st.number_input("Eventi Attesi (Prese)", min_value=1, value=6, step=1)
     
     stake_da_giocare = calcola_tutti_step_masaniello(cassa_riferimento, q_med, t_ev, p_ev)
-    st.metric("🍷 Stake Masaniello Suggerito dallo Step Attuale", f"{stake_da_giocare:.2f} €")
+    st.metric("🍷 Stake Masaniello Suggerito dello Step Attuale", f"{stake_da_giocare:.2f} €")
 
 st.divider()
 
-# 4. FORM DI INSERIMENTO
+# 4. FORM DI INSERIMENTO OTTIMIZZATO (SENZA AUTO-RERUN PROBLEMATICI)
 st.subheader("📝 Registra la Giocata Effettuata")
 st.write(f"Lo stake bloccato per questa giocata è di **{stake_da_giocare:.2f} €**")
 
-with st.form(key="inserimento_giocata"):
+with st.form(key="inserimento_giocata", clear_on_submit=True):
     col_ev, col_qu, col_es = st.columns(3)
     with col_ev:
         evento_g = st.text_input("Partita / Evento", placeholder="Es. Inter - Juventus")
@@ -120,16 +114,13 @@ if registra:
         "Profitto Netto": float(round(profitto_netto, 2))
     }])
     
-    # METODO DI SALVATAGGIO ULTRA-SICURO AD APPEND (EVITA BLOCCHI DI SCRITTURA INTERI)
+    df = pd.concat([df, nuova_riga], ignore_index=True)
+    
     try:
-        df_aggiornato = pd.concat([df, nuova_riga], ignore_index=True)
-        conn.update(worksheet=config["sheet"], data=df_aggiornato)
-        st.success("🎯 Giocata salvata con successo!")
-        st.rerun()
+        conn.update(worksheet=config["sheet"], data=df)
+        st.success("🎯 Giocata registrata correttamente sia sulla Dashboard che su Google Fogli! Aggiorna la pagina se necessario.")
     except Exception:
-        # Se fallisce la scrittura remota, la mostriamo comunque a schermo localmente per non perdere il dato
-        df = pd.concat([df, nuova_riga], ignore_index=True)
-        st.warning("⚠️ Salvato localmente nella sessione. Nota: controlla la connessione internet con il foglio Google.")
+        st.warning("⚠️ Giocata salvata localmente nella tabella in basso. Controlla la sincronizzazione di Google Fogli.")
 
 st.divider()
 
