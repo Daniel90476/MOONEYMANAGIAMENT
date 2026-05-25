@@ -1,143 +1,217 @@
-
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import math
-from streamlit_gsheets import GSheetsConnection
 
 # Configurazione della pagina
-st.set_page_config(page_title="Money Management Automation", layout="wide")
+st.set_page_config(page_title="Multi-Project Money Management", layout="wide", page_icon="⚽")
 
-# CONNESSONE A GOOGLE SHEETS
-conn = st.connection("gsheets", type=GSheetsConnection)
+# --- INIZIALIZZAZIONE MEMORIA DATI (SESSION STATE) ---
+if "progetti" not in st.session_state:
+    st.session_state.progetti = {}
+if "obiettivi" not in st.session_state:
+    st.session_state.obiettivi = {"Target Guadagno": 500.0, "Cassa Iniziale": 1000.0}
 
 # --- FUNZIONE MATEMATICA MASANIELLO ---
-def calcola_tutti_step_masaniello(cassa_impostata, quota_media, eventi_totali, eventi_attesi):
-    if eventi_totali <= 0 or eventi_attesi <= 0 or eventi_attesi > eventi_totali:
+def calcola_stake_masaniello(cassa, q_med, tot_ev, pag_ev, vinte, perse):
+    rimanenti_tot = tot_ev - (vinte + perse)
+    rimanenti_vincere = pag_ev - vinte
+    if rimanenti_tot <= 0 or rimanenti_vincere <= 0 or rimanenti_vincere > rimanenti_tot:
         return 0.0
-    num = math.comb(eventi_totali - 1, eventi_attesi - 1) * (quota_media ** eventi_attesi)
-    den = sum(math.comb(eventi_totali, i) * (quota_media ** i) for i in range(eventi_attesi, eventi_totali + 1))
+    num = math.comb(rimanenti_tot - 1, rimanenti_vincere - 1) * (q_med ** rimanenti_vincere)
+    den = sum(math.comb(rimanenti_tot, i) * (q_med ** i) for i in range(rimanenti_vincere, rimanenti_tot + 1))
     if den == 0: return 0.0
-    return round(cassa_impostata * (num / den), 2)
+    return round(cassa * (num / den), 2)
 
-st.title("🛡️ Calcolatore Automatico Money Management")
-st.markdown("Imposta la tua cassa di riferimento. Il sistema calcolerà automaticamente gli stake.")
-st.divider()
+# --- BARRA LATERALE: NAVIGAZIONE ---
+st.sidebar.title("📌 Navigazione Hub")
+pagine_disponibili = ["🏠 Dashboard Generale"] + list(st.session_state.progetti.keys())
+pagina_corrente = st.sidebar.radio("Vai a:", pagine_disponibili)
 
-# --- PROGETTI DISPONIBILI ---
-CONFIG_PROGETTI = {
-    "📊 Matrix a 4 Stazioni": {"tipo": "Matrix", "sheet": "Matrix"},
-    "🍷 Masaniello Strategico": {"tipo": "Masaniello", "sheet": "Masaniello"}
-}
+st.sidebar.divider()
+st.sidebar.subheader("⚙️ Impostazioni Obiettivi")
+st.session_state.obiettivi["Cassa Iniziale"] = st.sidebar.number_input("Cassa Totale Disponibile (€)", min_value=10.0, value=st.session_state.obiettivi["Cassa Iniziale"], step=50.0)
+st.session_state.obiettivi["Target Guadagno"] = st.sidebar.number_input("Target Profitto Globale (€)", min_value=10.0, value=st.session_state.obiettivi["Target Guadagno"], step=50.0)
 
-progetto_scelto = st.selectbox("🗂️ Seleziona il Sottofoglio da visualizzare:", list(CONFIG_PROGETTI.keys()))
-config = CONFIG_PROGETTI[progetto_scelto]
 
-# 1. LETTURA DATI PROTETTA
-try:
-    df = conn.read(worksheet=config["sheet"], ttl=0)
-    if df is None or df.empty or "Stake Calcolato" not in df.columns:
-        df = pd.DataFrame(columns=["Data", "Evento", "Quota", "Stake Calcolato", "Esito", "Profitto Netto"])
-except Exception:
-    df = pd.DataFrame(columns=["Data", "Evento", "Quota", "Stake Calcolato", "Esito", "Profitto Netto"])
+# ==============================================================================
+# 🏠 PAGINA PRINCIPALE: DASHBOARD GENERALE
+# ==============================================================================
+if pagina_corrente == "🏠 Dashboard Generale":
+    st.title("📊 Controllo Centralizzato Investimenti")
+    st.markdown("Crea nuovi sistemi di Money Management, monitora l'andamento globale e tieni d'occhio i tuoi obiettivi finanziari.")
+    st.divider()
 
-if not df.empty:
-    df = df.dropna(subset=["Evento"])
+    # --- POP-UP NUOVO PROGETTO (PULSANTE ⚽) ---
+    col_btn, _ = st.columns([1, 3])
+    with col_btn:
+        with st.popover("⚽ Nuovo Progetto", use_container_width=True):
+            st.subheader("Crea un nuovo sistema")
+            nome_p = st.text_input("Nome Progetto", placeholder="Es. Masaniello 14/30 Win HT")
+            tipo_p = st.selectbox("Strategia", ["Masaniello", "Matrix a 4 Stazioni"])
+            cassa_p = st.number_input("Cassa Dedicata (€)", min_value=10.0, value=200.0, step=10.0)
+            
+            if tipo_p == "Masaniello":
+                col_m1, col_m2, col_m3 = st.columns(3)
+                with col_m1: q_m = st.number_input("Quota Media", min_value=1.05, value=2.00, step=0.05)
+                with col_m2: t_e = st.number_input("Eventi Totali", min_value=1, value=30)
+                with col_m3: p_e = st.number_input("Eventi Attesi", min_value=1, value=14)
+            
+            if st.button("🚀 Inizializza Progetto", use_container_width=True):
+                if nome_p and nome_p not in st.session_state.progetti:
+                    # Struttura dati per il singolo progetto
+                    st.session_state.progetti[nome_p] = {
+                        "tipo": tipo_p,
+                        "cassa_iniziale": cassa_p,
+                        "cassa_attuale": cassa_p,
+                        "giocate": pd.DataFrame(columns=["Step", "Evento", "Quota", "Stake", "Esito", "Profitto Netto"]),
+                        "parametri": {"quota_media": q_m, "totali": t_e, "attesi": p_e} if tipo_p == "Masaniello" else {}
+                    }
+                    st.success(f"Progetto '{nome_p}' creato! Selezionalo nella barra laterale.")
+                    st.rerun()
+                else:
+                    st.error("Nome non valido o già esistente.")
 
-# 2. IMPOSTAZIONE CASSA MANUALE
-st.subheader("⚙️ Impostazione Cassa di Riferimento")
-cassa_riferimento = st.number_input("Inserisci il Capitale da cui calcolare gli stake (€):", min_value=10.0, value=1000.0, step=50.0, format="%.2f")
+    st.divider()
 
-st.divider()
+    # --- CALCOLO METRICHE GLOBALI ---
+    profitto_totale = 0.0
+    for p_nome, p_dati in st.session_state.progetti.items():
+        if not p_dati["giocate"].empty:
+            profitto_totale += p_dati["giocate"]["Profitto Netto"].sum()
 
-# 3. GENERATORE AUTOMATICO DI STAKE
-st.subheader("🎯 Tabella degli Stake Calcolati")
-
-if config["tipo"] == "Matrix":
-    st1 = cassa_riferimento * 0.01
-    st2 = cassa_riferimento * 0.025
-    st3 = cassa_riferimento * 0.05
-    st4 = cassa_riferimento * 0.10
+    # --- SEZIONE GRAFICO OBIETTIVI (GAUGE CHART) ---
+    st.subheader("🎯 Stato di Avanzamento Obiettivo")
     
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("🔴 S-Small (1%)", f"{st1:.2f} €")
-    c2.metric("🟠 Small (2.5%)", f"{st2:.2f} €")
-    c3.metric("🔵 Medium (5%)", f"{st3:.2f} €")
-    c4.metric("🟣 Large (10%)", f"{st4:.2f} €")
+    fig_target = go.Figure(go.Indicator(
+        mode = "gauge+number+delta",
+        value = profitto_totale,
+        domain = {'x': [0, 1], 'y': [0, 1]},
+        title = {'text': "Profitto Progressivo (€) rispetto al Target", 'font': {'size': 18}},
+        delta = {'reference': st.session_state.obiettivi["Target Guadagno"], 'increasing': {'color': "green"}},
+        gauge = {
+            'axis': {'range': [None, st.session_state.obiettivi["Target Guadagno"] * 1.2]},
+            'bar': {'color': "#2ecc71"},
+            'bgcolor': "white",
+            'borderwidth': 2,
+            'bordercolor': "gray",
+            'steps': [
+                {'range': [0, st.session_state.obiettivi["Target Guadagno"]], 'color': '#f1f2f6'}],
+            'threshold': {
+                'line': {'color': "red", 'width': 4},
+                'thickness': 0.75,
+                'value': st.session_state.obiettivi["Target Guadagno"]}}))
     
-    scelta_stazione = st.radio("Quale stazione stai giocando adesso?", ["S-Small (1%)", "Small (2.5%)", "Medium (5%)", "Large (10%)"])
-    if "S-Small" in scelta_stazione: stake_da_giocare = st1
-    elif "Small" in scelta_stazione: stake_da_giocare = st2
-    elif "Medium" in scelta_stazione: stake_da_giocare = st3
-    else: stake_da_giocare = st4
+    fig_target.update_layout(height=280, margin=dict(l=20, r=20, t=40, b=20))
+    st.plotly_chart(fig_target, use_container_width=True)
 
-elif config["tipo"] == "Masaniello":
-    col_q, col_tot, col_ok = st.columns(3)
-    with col_q: q_med = st.number_input("Quota Media Masa", min_value=1.01, value=2.00, step=0.05)
-    with col_tot: t_ev = st.number_input("Eventi Totali", min_value=1, value=10, step=1)
-    with col_ok: p_ev = st.number_input("Eventi Attesi (Prese)", min_value=1, value=6, step=1)
-    
-    stake_da_giocare = calcola_tutti_step_masaniello(cassa_riferimento, q_med, t_ev, p_ev)
-    st.metric("🍷 Stake Masaniello Suggerito dello Step Attuale", f"{stake_da_giocare:.2f} €")
-
-st.divider()
-
-# 4. FORM DI INSERIMENTO OTTIMIZZATO (SENZA AUTO-RERUN PROBLEMATICI)
-st.subheader("📝 Registra la Giocata Effettuata")
-st.write(f"Lo stake bloccato per questa giocata è di **{stake_da_giocare:.2f} €**")
-
-with st.form(key="inserimento_giocata", clear_on_submit=True):
-    col_ev, col_qu, col_es = st.columns(3)
-    with col_ev:
-        evento_g = st.text_input("Partita / Evento", placeholder="Es. Inter - Juventus")
-    with col_qu:
-        quota_g = st.number_input("Quota Effettiva Giocata", min_value=1.01, value=2.00, step=0.01, format="%.2f")
-    with col_es:
-        esito_g = st.selectbox("Esito Finale", ["Vinto", "Perso", "In attesa"])
+    # --- PROGETTI ATTIVI E ANDAMENTO GRAFICO ---
+    st.subheader("📈 Panoramica Progetti Attivi")
+    if st.session_state.progetti:
+        c_attivi, c_graf = st.columns([1, 2])
         
-    registra = st.form_submit_button(label="🚀 Registra Operazione nel Registro")
-
-if registra:
-    if esito_g == "Vinto":
-        profitto_netto = (stake_da_giocare * quota_g) - stake_da_giocare
-    elif esito_g == "Perso":
-        profitto_netto = -stake_da_giocare
+        with c_attivi:
+            for p_nome, p_dati in st.session_state.progetti.items():
+                p_prof = p_dati["giocate"]["Profitto Netto"].sum() if not p_dati["giocate"].empty else 0.0
+                color = "green" if p_prof >= 0 else "red"
+                st.metric(label=f"📂 {p_nome} ({p_dati['tipo']})", value=f"{p_dati['cassa_attuale']:.2f} €", delta=f"{p_prof:+.2f} € Profitto")
+        
+        with c_graf:
+            # Grafico comparativo profitti dei progetti
+            p_nomi = list(st.session_state.progetti.keys())
+            p_profitti = [st.session_state.progetti[p]["giocate"]["Profitto Netto"].sum() if not st.session_state.progetti[p]["giocate"].empty else 0.0 for p in p_nomi]
+            
+            df_comp = pd.DataFrame({"Progetto": p_nomi, "Profitto Netto (€)": p_profitti})
+            fig_comp = px.bar(df_comp, x="Progetto", y="Profitto Netto (€)", color="Profitto Netto (€)",
+                             color_continuous_scale=["#e74c3c", "#2ecc71"], title="Profitti Ripartiti per Progetto")
+            fig_comp.update_layout(height=300)
+            st.plotly_chart(fig_comp, use_container_width=True)
     else:
-        profitto_netto = 0.0
+        st.info("ℹ️ Nessun progetto attivo. Clicca sul pulsante '⚽ Nuovo Progetto' in alto per iniziare.")
 
-    nuova_riga = pd.DataFrame([{
-        "Data": pd.Timestamp.now().strftime("%Y-%m-%d"),
-        "Evento": str(evento_g),
-        "Quota": float(quota_g),
-        "Stake Calcolato": float(round(stake_da_giocare, 2)),
-        "Esito": str(esito_g),
-        "Profitto Netto": float(round(profitto_netto, 2))
-    }])
-    
-    df = pd.concat([df, nuova_riga], ignore_index=True)
-    
-    try:
-        conn.update(worksheet=config["sheet"], data=df)
-        st.success("🎯 Giocata registrata correttamente sia sulla Dashboard che su Google Fogli! Aggiorna la pagina se necessario.")
-    except Exception:
-        st.warning("⚠️ Giocata salvata localmente nella tabella in basso. Controlla la sincronizzazione di Google Fogli.")
 
-st.divider()
-
-# 5. RENDICONTO E GRAFICI
-if not df.empty and len(df) > 0:
-    st.subheader("📋 Registro Storico delle Giocate Convalidate")
-    st.dataframe(df, use_container_width=True)
-    
-    try:
-        df["Profitto Netto"] = pd.to_numeric(df["Profitto Netto"])
-        df["Profitto Progressivo"] = df["Profitto Netto"].cumsum()
-        
-        st.subheader("📈 Profitto Netto Progressivo (€)")
-        fig = px.line(df, x=df.index, y="Profitto Progressivo", markers=True)
-        fig.update_traces(line_color="#2ecc71", width=3)
-        st.plotly_chart(fig, use_container_width=True)
-    except Exception:
-        pass
+# ==============================================================================
+# 📂 PAGINA DEDICATA AL SINGOLO PROGETTO
+# ==============================================================================
 else:
-    st.info("ℹ️ Nessuna giocata inserita in questo registro.")
+    p_nome = pagina_corrente
+    p_dati = st.session_state.progetti[p_nome]
+    
+    st.title(f"📂 Gestione Sistema: {p_nome}")
+    st.markdown(f"Strategia utilizzata: **{p_dati['tipo']}** | Cassa Iniziale: **{p_dati['cassa_iniziale']:.2f} €**")
+    st.divider()
+
+    # Calcolo situazione attuale delle giocate convalidate
+    df_g = p_dati["giocate"]
+    vinte = len(df_g[df_g["Esito"] == "Vinto"])
+    perse = len(df_g[df_g["Esito"] == "Perso"])
+    step_attuale = len(df_g) + 1
+
+    # --- CALCOLO DELLO STAKE IN BASE AL MODELLO ---
+    if p_dati["tipo"] == "Masaniello":
+        pars = p_dati["parametri"]
+        stake_suggerito = calcola_stake_masaniello(p_dati["cassa_iniziale"], pars["quota_media"], pars["totali"], pars["attesi"], vinte, perse)
+        st.info(f"📊 **Parametri Masaniello**: {pars['totali']} eventi totali, {pars['attesi']} attesi. Rendimento calcolato su quota media {pars['quota_media']:.2f}")
+    else:
+        # Modello Matrix a 4 stazioni applicato alla cassa corrente del progetto
+        st.subheader("🎛️ Seleziona Stazione Matrix")
+        scelta_staz = st.radio("Livello:", ["S-Small (1%)", "Small (2.5%)", "Medium (5%)", "Large (10%)"], horizontal=True)
+        percentuale = 0.01 if "S-Small" in scelta_staz else 0.025 if "Small" in scelta_staz else 0.05 if "Medium" in scelta_staz else 0.10
+        stake_suggerito = round(p_dati["cassa_attuale"] * percentage, 2)
+
+    # Mostra lo stake calcolato per il prossimo step
+    st.metric(label=f"🎯 Stake Consigliato per lo Step {step_attuale}", value=f"{stake_suggerito:.2f} €")
+
+    # --- FORM INSERIMENTO GIOCATA RIGA PER RIGA ---
+    st.subheader(f"📝 Registra Giocata #{step_attuale}")
+    with st.form(key=f"form_{p_nome}", clear_on_submit=True):
+        c1, c2, c3 = st.columns(3)
+        with c1: ev_input = st.text_input("Partita / Evento", placeholder="Es. Inter - Milan")
+        with c2: qu_input = st.number_input("Quota Giocata", min_value=1.01, value=2.00, step=0.01, format="%.2f")
+        with c3: es_input = st.selectbox("Esito", ["Vinto", "Perso"])
+        
+        submit_g = st.form_submit_button("⚡ Convalida ed Inserisci nel Registro")
+
+    if submit_g:
+        if ev_input:
+            # Calcolo profitto della giocata
+            if es_input == "Vinto":
+                prof_netto = (stake_suggerito * qu_input) - stake_suggerito
+            else:
+                prof_netto = -stake_suggerito
+
+            # Creazione nuova riga
+            nuova_g = pd.DataFrame([{
+                "Step": step_attuale,
+                "Evento": str(ev_input),
+                "Quota": float(qu_input),
+                "Stake": float(stake_suggerito),
+                "Esito": str(es_input),
+                "Profitto Netto": float(round(prof_netto, 2))
+            }])
+            
+            # Aggiornamento dati del progetto
+            p_dati["giocate"] = pd.concat([df_g, nuova_g], ignore_index=True)
+            p_dati["cassa_attuale"] = round(p_dati["cassa_attuale"] + prof_netto, 2)
+            st.success("Giocata inserita con successo!")
+            st.rerun()
+        else:
+            st.error("Inserisci il nome dell'evento prima di salvare.")
+
+    st.divider()
+
+    # --- ELENCO GIOCATE E GRAFICO DEL PROGETTO ---
+    if not p_dati["giocate"].empty:
+        st.subheader("📋 Registro Storico Giocate del Progetto")
+        st.dataframe(p_dati["giocate"], use_container_width=True)
+        
+        # Grafico lineare del profitto progressivo di questa specifica sessione
+        df_g_Att = p_dati["giocate"].copy()
+        df_g_Att["Progressivo"] = df_g_Att["Profitto Netto"].cumsum()
+        
+        fig_p = px.line(df_g_Att, x="Step", y="Progressivo", markers=True, title="Trend Profitto Lineare (€)")
+        fig_p.update_traces(line_color="#3498db", width=3)
+        st.plotly_chart(fig_p, use_container_width=True)
+    else:
+        st.info("Nessuna giocata presente per questo specifico progetto.")
